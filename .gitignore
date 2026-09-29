@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environments (Command uses exactly one: .venv)
+.venv/
+.venv-*/
+venv/
+
+# Generated data and trained models
+*.csv
+atlas_models/
+*.joblib
+*.pkl
+
+# Editor / OS
+.DS_Store
+.ipynb_checkpoints/
+
+# Streamlit secrets (config.toml is committed)
+.streamlit/secrets.toml
