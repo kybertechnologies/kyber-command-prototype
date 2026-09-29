@@ -9,6 +9,7 @@ venv/
 
 # Generated data and trained models
 *.csv
+!atlas_training_data.csv
 atlas_models/
 *.joblib
 *.pkl
