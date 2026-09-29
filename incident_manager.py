@@ -46,7 +46,7 @@ _FAULT_DEFAULTS = {
                             "text": "Thermal failure of the substation transformer at {name} (Bus {bus})"},
     "VOLTAGE-SAG": {"bus": 6, "severity": "HIGH", "repair": 34,
                     "text": "Voltage depression at {name} (Bus {bus}) spreading to neighbouring buses"},
-    "CASCADING-FAULT": {"bus": 4, "severity": "CRITICAL", "repair": 142,
+    "CASCADING-FAULT": {"bus": 3, "severity": "CRITICAL", "repair": 142,
                         "text": "Cascading relay trips isolating {name} (Bus {bus}) and adjacent branches"},
     "CABLE-FAULT": {"bus": 14, "severity": "HIGH", "repair": 75,
                     "text": "Underground cable failure on a {name} (Bus {bus}) feeder"},

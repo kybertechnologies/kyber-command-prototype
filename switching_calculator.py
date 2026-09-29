@@ -23,6 +23,7 @@ from grid_topology import (
     GRID_GRAPH,
     LINE_STATES,
     get_bus_location,
+    get_deenergized_buses,
     get_line_status,
     isolate_bus,
     reset_grid_state,
@@ -66,16 +67,17 @@ def get_affected_customers(faulted_bus):
 
 def _neighbour_headroom(neighbour, faulted_bus):
     """Spare capacity (0-1) at a neighbour: 1 minus its most loaded remaining branch."""
-    loadings = [GRID_GRAPH.edges[neighbour, nb]["initial_loading"]
+    loadings = [LINE_STATES[GRID_GRAPH.edges[neighbour, nb]["line_id"]]["current_loading"]
                 for nb in GRID_GRAPH.neighbors(neighbour) if nb != faulted_bus]
     return max(0.0, 1.0 - max(loadings, default=1.0))
 
 
 def _tie_candidates(faulted_bus):
-    """Neighbouring substations that serve customers, best transfer capacity first."""
+    """Neighbouring substations that serve customers and still have supply, best first."""
+    dead = set(get_deenergized_buses())
     candidates = []
     for nb in GRID_GRAPH.neighbors(faulted_bus):
-        if BUS_CUSTOMER_COUNTS[nb] == 0:
+        if BUS_CUSTOMER_COUNTS[nb] == 0 or nb in dead:
             continue
         headroom = _neighbour_headroom(nb, faulted_bus)
         capacity = int(round(TIE_TRANSFER_LIMIT_CUSTOMERS * headroom))
