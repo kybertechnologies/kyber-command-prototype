@@ -64,6 +64,10 @@ def get_affected_customers(faulted_bus):
     buses = [faulted_bus] + get_islanded_buses(faulted_bus)
     return sum(BUS_CUSTOMER_COUNTS[b] for b in buses)
 
+def _live_neighbours(bus, exclude=()):
+    """Neighbouring substations that still have a path to generation."""
+    dead = set(get_deenergized_buses())
+    return [nb for nb in GRID_GRAPH.neighbors(bus) if nb not in dead and nb not in exclude]
 
 def _neighbour_headroom(neighbour, faulted_bus):
     """Spare capacity (0-1) at a neighbour: 1 minus its most loaded remaining branch."""
@@ -126,10 +130,11 @@ def _line_fault_steps(bus, customers):
               f"Opens the far end so {line_id} is de-energised from both sides and safe "
               f"for the crew.", 0, "breaker", True),
     ]
-    if len(branches) > 1:
+    supplies = _live_neighbours(bus, exclude={far})
+    if supplies:
         steps.append(_step(
             "CLOSE", f"CB-{bus}F", f"{_name(bus)} substation (Bus {bus}), main feeder breaker",
-            f"Bus {bus} is still supplied by {len(branches) - 1} other branch(es), so the "
+            f"Bus {bus} is still supplied by {len(supplies)} other energised branch(es), so the "
             f"feeders that tripped on undervoltage can be re-energised.",
             customers, "breaker", True))
         return steps, customers
@@ -170,17 +175,21 @@ def _cascading_steps(bus, customers):
 
 
 def _voltage_sag_steps(bus, customers):
-    restored = int(round(customers * CAPACITOR_VOLTAGE_RECOVERY))
+    supplied = bool(_live_neighbours(bus))
+    restored = int(round(customers * CAPACITOR_VOLTAGE_RECOVERY)) if supplied else 0
     steps = [_step(
         "CLOSE", f"CAP-{bus}A", f"{_name(bus)} substation (Bus {bus}), switched capacitor bank",
-        "Injects reactive power to lift the sagging bus voltage back toward 1.0 pu.",
+        "Injects reactive power to lift the sagging bus voltage back toward 1.0 pu."
+        if supplied else "Pre-armed only: every neighbouring substation is already de-energised, "
+        "so there is no supply for the capacitor to support.",
         restored, "capacitor", True)]
     tie_steps, restored = _tie_steps(bus, customers, restored, MAX_TIES["VOLTAGE-SAG"])
     return steps + tie_steps, restored
 
 
 def _cable_fault_steps(bus, customers):
-    restored = int(round(customers * 0.5))
+    supplied = bool(_live_neighbours(bus))
+    restored = int(round(customers * 0.5)) if supplied else 0
     steps = [
         _step("OPEN", f"SW-{bus}-C1",
               f"{_name(bus)} (Bus {bus}), underground cable sectionalizer upstream of fault",
@@ -188,7 +197,9 @@ def _cable_fault_steps(bus, customers):
               0, "disconnect", False),
         _step("CLOSE", f"CB-{bus}F",
               f"{_name(bus)} substation (Bus {bus}), main feeder breaker",
-              "Re-energises the healthy cable sections between the substation and the fault.",
+              "Re-energises the healthy cable sections between the substation and the fault."
+              if supplied else "Held open: the substation has no energised supply to feed "
+              "the healthy cable sections from.",
               restored, "breaker", True),
     ]
     tie_steps, restored = _tie_steps(bus, customers, restored, MAX_TIES["CABLE-FAULT"])

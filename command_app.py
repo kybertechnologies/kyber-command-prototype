@@ -151,7 +151,13 @@ def rebuild_grid_faults():
         grid_topology.trigger_fault_on_bus(incident.affected_bus)
         grid_topology.isolate_bus(incident.affected_bus)
 
-
+def sync_grid_with_session():
+    """Make the grid model match this browser session's active incidents.
+    The grid model lives in the Python process and is shared by every tab, so a
+    page refresh or a second tab would otherwise see another session's faults.
+    """
+    if set(grid_topology.FAULTED_BUSES) != {i.affected_bus for i in active_incidents()}:
+        rebuild_grid_faults()
 # ---------------------------------------------------------------- actions (button callbacks)
 
 def trigger_fault(fault_type):
@@ -161,7 +167,8 @@ def trigger_fault(fault_type):
     if any(i.affected_bus == target for i in active_incidents()):
         st.toast(f"Bus {target} already has an active incident. Complete its repair or pick another bus.")
         return
-
+    
+    sync_grid_with_session()
     incident = incident_manager.respond_to_fault(fault_type, bus, registry=registry, crews=crews)
     st.session_state.focus_incident_id = incident.incident_id
     name = grid_topology.BUS_LOCATIONS[incident.affected_bus]["name"]
@@ -286,6 +293,7 @@ def grid_map(highlight_bus=None, height=330):
 
 # ---------------------------------------------------------------- header
 
+sync_grid_with_session()
 active = active_incidents()
 focus = focus_incident()
 in_fault = bool(active)
