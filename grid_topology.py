@@ -166,6 +166,7 @@ _INITIAL_LINE_STATES = {
     for a, b, data in GRID_GRAPH.edges(data=True)
 }
 LINE_STATES = copy.deepcopy(_INITIAL_LINE_STATES)
+FAULTED_BUSES = set()
 
 
 def get_bus_location(bus):
@@ -193,6 +194,7 @@ def trigger_fault_on_bus(bus):
     if bus not in GRID_GRAPH:
         raise ValueError(f"Bus {bus} is not in the IEEE 14-bus network")
 
+    FAULTED_BUSES.add(bus)
     faulted = []
     for neighbour in GRID_GRAPH.neighbors(bus):
         line_id = GRID_GRAPH.edges[bus, neighbour]["line_id"]
@@ -200,13 +202,15 @@ def trigger_fault_on_bus(bus):
         LINE_STATES[line_id]["current_loading"] = 0.0
         faulted.append(line_id)
 
-    out_buses = {b for b, state in _bus_outage_map().items() if state}
-    flows = solve_branch_flows_mva(out_of_service_buses=out_buses)
-    for line_id, flow in flows.items():
-        if LINE_STATES[line_id]["status"] == "IN-SERVICE":
-            a, b = LINE_STATES[line_id]["buses"]
+    # Buses cut off from every generator are dead; leaving them in would give
+    # the power flow an island with no supply, which it cannot solve.
+    out_buses = set(get_deenergized_buses())
+    flows = solve_branch_flows_mva(out_buses) if len(out_buses) < len(GRID_GRAPH) else {}
+    for line_id, state in LINE_STATES.items():
+        if state["status"] == "IN-SERVICE":
+            a, b = state["buses"]
             capacity = GRID_GRAPH.edges[a, b]["capacity_mva"]
-            LINE_STATES[line_id]["current_loading"] = round(flow / capacity, 3)
+            state["current_loading"] = round(flows.get(line_id, 0.0) / capacity, 3)
     return faulted
 
 
@@ -222,15 +226,20 @@ def reset_grid_state():
     """Put every line back IN-SERVICE at its base-case loading."""
     LINE_STATES.clear()
     LINE_STATES.update(copy.deepcopy(_INITIAL_LINE_STATES))
+    FAULTED_BUSES.clear()
 
 
-def _bus_outage_map():
-    """{bus: True} for buses where every connected branch is out of service."""
-    return {
-        bus: all(LINE_STATES[GRID_GRAPH.edges[bus, nb]["line_id"]]["status"] != "IN-SERVICE"
-                 for nb in GRID_GRAPH.neighbors(bus))
-        for bus in GRID_GRAPH.nodes
-    }
+def get_deenergized_buses():
+    """Buses with no in-service path to a generation bus (including faulted buses)."""
+    live = nx.Graph()
+    live.add_nodes_from(b for b in GRID_GRAPH.nodes if b not in FAULTED_BUSES)
+    live.add_edges_from((a, b) for a, b, data in GRID_GRAPH.edges(data=True)
+                        if LINE_STATES[data["line_id"]]["status"] == "IN-SERVICE")
+    energized = set()
+    for source in GENERATION_BUSES:
+        if source in live:
+            energized |= nx.node_connected_component(live, source)
+    return sorted(set(GRID_GRAPH.nodes) - energized)
 
 
 if __name__ == "__main__":
@@ -257,4 +266,10 @@ if __name__ == "__main__":
           f" -> {get_line_status('Line-13-14')['loading_percent']}% (picks up bus 14's load)")
     reset_grid_state()
     assert get_line_status("Line-9-14")["loading_percent"] == before
+
+    for bus in (9, 4, 6):
+        trigger_fault_on_bus(bus)
+    print(f"  Faults on buses 9, 4 and 6 together: de-energised buses {get_deenergized_buses()}")
+    reset_grid_state()
+    assert get_deenergized_buses() == []
     print("  Reset OK. Grid topology ready.")
